@@ -1,0 +1,8 @@
+# dati riservati del ristorante: non pubblicare
+dati/*.csv
+dati/*.xlsx
+dettaglio_ordini_cena.csv
+*.xlsx
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store
