@@ -1,4 +1,14 @@
-"""Motore del prototipo: modello con categorie + contesto, regole operative e motivazioni."""
+"""Motore del prototipo: modello con categorie + contesto, regole operative e motivazioni.
+
+Il motore si può costruire in due modi:
+- dai dati storici (dettaglio_ordini_cena.csv), addestrando i modelli: è il modo usato nella tesi;
+- dal file modello_aggregato.json, che contiene solo parametri e conteggi aggregati già calcolati
+  (coefficienti delle regressioni, numero di tavoli per prodotto e per coppia di prodotti, prezzi mediani).
+  Serve per pubblicare l'app online senza pubblicare gli scontrini: i suggerimenti sono identici.
+"""
+import json
+import os
+
 import numpy as np
 import pandas as pd
 from baseline import carica_turni, BaselineCategorieComplementari as BC
@@ -16,8 +26,21 @@ def etichetta_commensali(n):
     return "1_2" if n <= 2 else ("3_4" if n <= 4 else "5+")
 
 
+class _Logit:
+    """Regressione logistica già addestrata (solo coefficienti), con la stessa interfaccia di sklearn usata dal motore."""
+    def __init__(self, w, b):
+        self.w, self.b = np.asarray(w, dtype=float), float(b)
+
+    def predict_proba(self, F):
+        p = 1 / (1 + np.exp(-(np.asarray(F, dtype=float) @ self.w + self.b)))
+        return np.column_stack([1 - p, p])
+
+
 class Motore:
-    def __init__(self, percorso_csv="dettaglio_ordini_cena.csv"):
+    def __init__(self, percorso_csv="dettaglio_ordini_cena.csv", percorso_aggregato="modello_aggregato.json"):
+        if not os.path.exists(percorso_csv) and os.path.exists(percorso_aggregato):
+            self._da_aggregato(percorso_aggregato)      # versione online: nessuno scontrino, solo dati aggregati
+            return
         d = carica_turni(percorso_csv)
         self.d = d
         self.fam = dict(zip(d["nome_articolo"], d["macro_categoria"].map(BC._famiglia)))
@@ -33,6 +56,65 @@ class Motore:
         self.disponibili = None     # prodotti realmente presenti nel menu di oggi (impostati dall'app)
         self.menu = (d.assign(fam=d["nome_articolo"].map(self.fam))
                      .groupby(["macro_categoria"])["nome_articolo"].apply(lambda s: sorted(set(s))).to_dict())
+
+    # ------------------------------------------------------------------ dati aggregati (per la versione online)
+    def esporta_aggregato(self, percorso="modello_aggregato.json"):
+        """Salva solo ciò che serve all'app: parametri dei modelli e conteggi aggregati, nessun tavolo singolo."""
+        r, d = self.regole, self.d
+        fam_turno = d.assign(fam=d["nome_articolo"].map(self.fam))
+        in_cat = {c: set(fam_turno.loc[fam_turno["fam"] == c, "identificativo_turno"]) for c in self.cats}
+        tav_prod = d.groupby("nome_articolo")["identificativo_turno"].apply(set)
+        # per ogni prodotto: in quanti tavoli c'era anche almeno un prodotto di ciascuna categoria
+        con_cat = {p: [len(tav_prod[p] & in_cat[c]) for c in self.cats] for p in r.prodotti}
+
+        def modello(mc):
+            return {"variabili": mc.variabili, "q": list(map(float, mc.q)), "cats": mc.cats,
+                    "W": [list(map(float, m.coef_[0])) for m in mc.modelli],
+                    "b": [float(m.intercept_[0]) for m in mc.modelli]}
+
+        out = {"fam": self.fam, "prezzo": self.prezzo, "menu": self.menu, "cats": self.cats,
+               "regole": {"prodotti": r.prodotti, "cats": r.cats, "conf_cat": r.conf_cat.round(10).tolist(),
+                          "coppie": r.coppie.astype(int).tolist(), "nP": r.nP.astype(int).tolist(),
+                          "nC": r.nC.astype(int).tolist(), "n_turni": int(r.n_turni),
+                          "cat_di": {p: int(i) for p, i in r.cat_di.items()}},
+               "con_cat": con_cat,
+               "modelli": {"tutte": modello(self.tutte), "solo": modello(self.solo),
+                           **{"solo_" + v: modello(m) for v, m in self.singole.items()}}}
+        with open(percorso, "w", encoding="utf-8") as f:
+            json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
+        return percorso
+
+    def _da_aggregato(self, percorso):
+        A = json.load(open(percorso, encoding="utf-8"))
+        self.d = None
+        self.fam, self.prezzo, self.menu = A["fam"], A["prezzo"], A["menu"]
+
+        def modello(x):
+            mc = ModelloCategorie(x["variabili"])
+            mc.cats, mc.q = x["cats"], np.array(x["q"])
+            mc.ci = {c: i for i, c in enumerate(mc.cats)}
+            mc.modelli = [_Logit(w, b) for w, b in zip(x["W"], x["b"])]
+            return mc
+
+        M = A["modelli"]
+        self.tutte, self.solo = modello(M["tutte"]), modello(M["solo"])
+        self.singole = {v: modello(M["solo_" + v]) for v in VARIABILI}
+        R, r = A["regole"], RaccomandatoreRegole()
+        r.prodotti, r.cats = R["prodotti"], R["cats"]
+        r.pi = {p: i for i, p in enumerate(r.prodotti)}
+        r.ci = {c: i for i, c in enumerate(r.cats)}
+        r.conf_cat = np.array(R["conf_cat"])
+        r.coppie = np.array(R["coppie"], dtype=float)
+        r.nP, r.nC, r.n_turni = np.array(R["nP"], dtype=float), np.array(R["nC"], dtype=float), R["n_turni"]
+        r.vendite = r.nP
+        r.cat_di = R["cat_di"]
+        r.conf_prod = np.where(r.coppie >= MIN_COPPIE, r.coppie / np.maximum(r.nP[:, None], 1), -1.0)
+        r.prod_per_cat = {c: [r.pi[p] for p in r.prodotti if r.cat_di[p] == r.ci[c]] for c in r.cats}
+        self.regole = r
+        self.cats = self.tutte.cats
+        self.base = {c: r.nC[r.ci[c]] / r.n_turni for c in self.cats}
+        self._con_cat = A["con_cat"]
+        self.disponibili = None
 
     def imposta_menu(self, disponibili, prezzi):
         """Limita i suggerimenti ai prodotti presenti nel menu attuale e usa i prezzi attuali."""
@@ -118,6 +200,12 @@ class Motore:
     def quota_categoria(self, ultimo, c):
         """Quota di tavoli con `ultimo` in cui c'era almeno un prodotto della categoria `c` (e numero di tavoli)."""
         d = self.d
+        if d is None:                                   # versione online: conteggi aggregati
+            r = self.regole
+            if ultimo not in r.pi or not r.nP[r.pi[ultimo]]:
+                return 0.0, 0
+            n = int(r.nP[r.pi[ultimo]])
+            return self._con_cat[ultimo][self.cats.index(c)] / n, n
         t_u = set(d.loc[d["nome_articolo"] == ultimo, "identificativo_turno"])
         if not t_u:
             return 0.0, 0

@@ -62,6 +62,7 @@ A livello di singolo prodotto il compito è molto più difficile (Hit Rate con K
 
 - `app.py`: menu digitale del ristorante in **Streamlit**, con barra laterale per simulare il tavolo (giorno, orario, commensali) e una "modalità dimostrazione" che mostra probabilità, motivazioni e regole applicate;
 - `motore.py`: il motore usato dal prototipo (modello con contesto + regole operative + motivazioni);
+- `modello_aggregato.json`: i parametri dei modelli e i conteggi aggregati (tavoli per prodotto, per coppia di prodotti e per categoria), creati con `crea_modello_aggregato.py`. Se `dettaglio_ordini_cena.csv` non c'è, l'app parte da questo file: è così che gira la versione online, senza pubblicare gli scontrini. Su 1.500 carrelli casuali dà esattamente gli stessi suggerimenti del modello addestrato sui dati;
 - `demo-web/`: la stessa demo in una sola pagina HTML. Il modello addestrato è esportato in JSON (`esporta_modello.py`: solo pesi e conteggi aggregati, nessuno scontrino) e il motore è riscritto in JavaScript (`motore.js`). Sui 400 carrelli di verifica dà gli stessi suggerimenti del motore Python.
 
 ## Come eseguirlo
@@ -71,7 +72,8 @@ pip install -r requirements.txt
 # metti dettaglio_ordini_cena.csv nella cartella principale (vedi dati/README.md)
 python punto5_esecuzione.py          # regole e metriche
 python punto7_esecuzione.py          # variabili di contesto (qualche minuto)
-streamlit run app.py                 # prototipo del menu
+streamlit run app.py                 # prototipo del menu (funziona anche senza il CSV, con modello_aggregato.json)
+python crea_modello_aggregato.py     # rigenera modello_aggregato.json dai dati
 python demo-web/costruisci_demo.py   # rigenera la demo web
 ```
 
