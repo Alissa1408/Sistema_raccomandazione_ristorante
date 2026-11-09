@@ -1,10 +1,10 @@
 """Motore del prototipo: modello con categorie + contesto, regole operative e motivazioni.
 
-Il motore si può costruire in due modi:
-- dai dati storici (dettaglio_ordini_cena.csv), addestrando i modelli: è il modo usato nella tesi;
-- dal file modello_aggregato.json, che contiene solo parametri e conteggi aggregati già calcolati
-  (coefficienti delle regressioni, numero di tavoli per prodotto e per coppia di prodotti, prezzi mediani).
-  Serve per pubblicare l'app online senza pubblicare gli scontrini: i suggerimenti sono identici.
+Il motore si puo' costruire in due modi:
+- dai dati storici (dettaglio_ordini_cena.csv), addestrando i modelli: e' il modo usato nella tesi;
+- dal file modello_aggregato.json, che contiene solo parametri e conteggi aggregati gia' calcolati
+  (coefficienti delle regressioni, tavoli per prodotto, per coppia di prodotti, per prodotto e categoria,
+  per prodotto e contesto). Serve per pubblicare l'app online senza pubblicare gli scontrini: i suggerimenti sono identici.
 """
 import json
 import os
@@ -20,6 +20,7 @@ GIORNI = {"Lunedì": "feriale", "Martedì": "feriale", "Mercoledì": "feriale", 
           "Venerdì": "ven", "Sabato": "sab", "Domenica": "dom"}
 FASCE = {"Prima delle 20": "prima_20", "20:00 - 20:59": "20_21", "Dopo le 21": "dopo_21"}
 SOGLIA = 0.10   # sotto questa probabilita' il sistema sta in silenzio
+MIN_STORICO = 10   # sotto questo numero di tavoli il piatto non ha storico: nessun suggerimento (e mai dati di altri piatti al suo posto)
 
 
 def etichetta_commensali(n):
@@ -27,7 +28,7 @@ def etichetta_commensali(n):
 
 
 class _Logit:
-    """Regressione logistica già addestrata (solo coefficienti), con la stessa interfaccia di sklearn usata dal motore."""
+    """Regressione logistica gia' addestrata (solo coefficienti), con la stessa interfaccia di sklearn usata dal motore."""
     def __init__(self, w, b):
         self.w, self.b = np.asarray(w, dtype=float), float(b)
 
@@ -37,14 +38,15 @@ class _Logit:
 
 
 class Motore:
-    def __init__(self, percorso_csv="dettaglio_ordini_cena.csv", percorso_aggregato="modello_aggregato.json"):
-        if not os.path.exists(percorso_csv) and os.path.exists(percorso_aggregato):
+    def __init__(self, percorso_csv="dettaglio_ordini_cena.csv", dati=None, percorso_aggregato="modello_aggregato.json"):
+        if dati is None and not os.path.exists(percorso_csv) and os.path.exists(percorso_aggregato):
             self._da_aggregato(percorso_aggregato)      # versione online: nessuno scontrino, solo dati aggregati
             return
-        d = carica_turni(percorso_csv)
+        d = carica_turni(percorso_csv) if dati is None else dati   # dati: per la valutazione, solo il training
         self.d = d
         self.fam = dict(zip(d["nome_articolo"], d["macro_categoria"].map(BC._famiglia)))
         turni = tabella_turni(d)
+        self.turni = turni
         self.tutte = ModelloCategorie(VARIABILI).fit(d, turni)       # categorie + contesto
         self.solo = ModelloCategorie([]).fit(d, turni)               # solo categorie nel carrello
         self.singole = {v: ModelloCategorie([v]).fit(d, turni) for v in VARIABILI}   # una variabile alla volta (per le motivazioni)
@@ -53,19 +55,30 @@ class Motore:
         self.base = {c: self.regole.nC[self.regole.ci[c]] / self.regole.n_turni for c in self.cats}
         unit = (d["prezzo"] / d["quantita"].where(d["quantita"] > 0, 1))
         self.prezzo = unit.groupby(d["nome_articolo"]).median().round(2).to_dict()
+        r = self.regole
+        riga = {x: i for i, x in enumerate(sorted(d["identificativo_turno"].unique()))}
+        P = np.zeros((len(riga), len(r.prodotti))); Cm = np.zeros((len(riga), len(r.cats)))
+        for tur, nome, fm in zip(d["identificativo_turno"], d["nome_articolo"], d["nome_articolo"].map(self.fam)):
+            P[riga[tur], r.pi[nome]] = 1
+            Cm[riga[tur], r.ci[fm]] = 1
+        self.con_cat = P.T @ Cm                                     # piatto x categoria: tavoli con il piatto che hanno ordinato anche la categoria
+        self.Q = self.con_cat / np.maximum(P.sum(0)[:, None], 1)    # la stessa cosa, come quota
+        # tavoli per piatto e per contesto (giorno|fascia|commensali): servono a mostrare i dati di contesto della motivazione
+        chiavi = (turni["giorno"] + "|" + turni["fascia"] + "|" + turni["commensali"]).reindex(sorted(riga)).values
+        self.ctx = {}
+        for k in sorted(set(chiavi)):
+            idx = np.where(chiavi == k)[0]
+            self.ctx[k] = (P[idx].sum(0), P[idx].T @ Cm[idx])
         self.disponibili = None     # prodotti realmente presenti nel menu di oggi (impostati dall'app)
         self.menu = (d.assign(fam=d["nome_articolo"].map(self.fam))
                      .groupby(["macro_categoria"])["nome_articolo"].apply(lambda s: sorted(set(s))).to_dict())
 
     # ------------------------------------------------------------------ dati aggregati (per la versione online)
     def esporta_aggregato(self, percorso="modello_aggregato.json"):
-        """Salva solo ciò che serve all'app: parametri dei modelli e conteggi aggregati, nessun tavolo singolo."""
-        r, d = self.regole, self.d
-        fam_turno = d.assign(fam=d["nome_articolo"].map(self.fam))
-        in_cat = {c: set(fam_turno.loc[fam_turno["fam"] == c, "identificativo_turno"]) for c in self.cats}
-        tav_prod = d.groupby("nome_articolo")["identificativo_turno"].apply(set)
-        # per ogni prodotto: in quanti tavoli c'era anche almeno un prodotto di ciascuna categoria
-        con_cat = {p: [len(tav_prod[p] & in_cat[c]) for c in self.cats] for p in r.prodotti}
+        """Salva solo cio' che serve all'app: parametri dei modelli e conteggi aggregati, nessun tavolo singolo.
+        I conteggi per contesto si salvano solo per i piatti con almeno MIN_STORICO tavoli (gli unici su cui il sistema propone)."""
+        r = self.regole
+        ok = (r.nP >= MIN_STORICO)[:, None]
 
         def modello(mc):
             return {"variabili": mc.variabili, "q": list(map(float, mc.q)), "cats": mc.cats,
@@ -77,7 +90,8 @@ class Motore:
                           "coppie": r.coppie.astype(int).tolist(), "nP": r.nP.astype(int).tolist(),
                           "nC": r.nC.astype(int).tolist(), "n_turni": int(r.n_turni),
                           "cat_di": {p: int(i) for p, i in r.cat_di.items()}},
-               "con_cat": con_cat,
+               "con_cat": (self.con_cat * ok).astype(int).tolist(),
+               "ctx": {k: {"n": (n * ok[:, 0]).astype(int).tolist(), "c": (c * ok).astype(int).tolist()} for k, (n, c) in self.ctx.items()},
                "modelli": {"tutte": modello(self.tutte), "solo": modello(self.solo),
                            **{"solo_" + v: modello(m) for v, m in self.singole.items()}}}
         with open(percorso, "w", encoding="utf-8") as f:
@@ -113,7 +127,9 @@ class Motore:
         self.regole = r
         self.cats = self.tutte.cats
         self.base = {c: r.nC[r.ci[c]] / r.n_turni for c in self.cats}
-        self._con_cat = A["con_cat"]
+        self.con_cat = np.array(A["con_cat"], dtype=float)
+        self.Q = self.con_cat / np.maximum(r.nP[:, None], 1)
+        self.ctx = {k: (np.array(v["n"], dtype=float), np.array(v["c"], dtype=float)) for k, v in A["ctx"].items()}
         self.disponibili = None
 
     def imposta_menu(self, disponibili, prezzi):
@@ -125,18 +141,20 @@ class Motore:
     def valore_carrello(self, carrello):
         return round(sum(self.prezzo.get(p, 0) for p in carrello), 2)
 
-    def suggerisci(self, carrello, giorno, fascia, n_commensali, k=3, valore=None, ultimo=None, n_prodotti=3):
+    def suggerisci(self, carrello, giorno, fascia, n_commensali, k=3, valore=None, ultimo=None, n_prodotti=3, usa_contesto=True):
         """Restituisce (suggerimenti, regole operative applicate, contesto)."""
         cat_cart = sorted({self.fam[p] for p in carrello})
-        if ultimo and (ultimo not in self.regole.pi or self.regole.nP[self.regole.pi[ultimo]] < MIN_COPPIE):
-            return [], ["Nessun suggerimento: il piatto non ha abbastanza storico (almeno %d tavoli) per basare una raccomandazione sui dati." % MIN_COPPIE], \
+        if ultimo and (ultimo not in self.regole.pi or self.regole.nP[self.regole.pi[ultimo]] < MIN_STORICO):
+            return [], ["Nessun suggerimento: il piatto non ha storico sufficiente (almeno %d tavoli) per basare una raccomandazione sui dati." % MIN_STORICO], \
                 {"Giorno": giorno, "Fascia": fascia, "Commensali": n_commensali, "Valore del carrello": valore}
         bloccate = non_consentite_fasi(cat_cart, self.cats, self.fam.get(ultimo) if ultimo else None)
-        comm = etichetta_commensali(n_commensali)
         valore = self.valore_carrello(carrello) if valore is None else valore
+        comm = etichetta_commensali(n_commensali)
         vpp = valore / max(n_commensali, 1)
         p_ctx = self.tutte.probabilita(cat_cart, giorno, fascia, comm, vpp)
         p_solo = self.solo.probabilita(cat_cart, giorno, fascia, comm, vpp)
+        if not usa_contesto:        # solo per la valutazione: stesso sistema senza variabili di contesto
+            p_ctx = p_solo
         p_var = {v: m.probabilita(cat_cart, giorno, fascia, comm, vpp) for v, m in self.singole.items()}
 
         regole_applicate = []
@@ -145,29 +163,42 @@ class Motore:
             regole_applicate.append("Dolci, caffè e amari/digestivi non vengono proposti finché nel carrello non c'è un piatto principale (pizza, primo o secondo).")
         if cat_cart:
             regole_applicate.append("Non si propone una categoria già presente nel carrello: " + ", ".join(cat_cart) + ".")
-        regole_applicate.append("Si propone una categoria solo se, con questo carrello, è più frequente della media nei tavoli che hanno ordinato l'ultimo piatto aggiunto.")
+        regole_applicate.append("La categoria si sceglie in base ai dati dell'ultimo piatto aggiunto (quota di tavoli con quel piatto che hanno ordinato la categoria), corretti dal contesto.")
         regole_applicate.append("Si propone una categoria solo se la probabilità stimata è almeno del %d%%: altrimenti il sistema sta in silenzio." % int(SOGLIA * 100))
 
-        punt = p_ctx.copy()
+        # punteggio di ogni categoria: dati del piatto appena scelto (quota di tavoli con quel piatto che hanno ordinato la categoria),
+        # corretti dal contesto con il rapporto tra la probabilita' del modello con e senza contesto
+        qd = self.Q[self.regole.pi[ultimo]] if ultimo else None
+
+        def aggiusta(q, ps, pc):
+            q, ps, pc = [min(max(x, 1e-6), 1 - 1e-6) for x in (q, ps, pc)]
+            odds = q / (1 - q) * (pc / (1 - pc)) / (ps / (1 - ps))
+            return odds / (1 + odds)
+
+        punt = np.array([aggiusta(qd[i], p_solo[i], p_ctx[i]) if ultimo else p_ctx[i] for i in range(len(self.cats))])
         for i, c in enumerate(self.cats):
             if c in cat_cart or c in bloccate:
                 punt[i] = -1
             elif self.disponibili is not None and not any(self.regole.prodotti[j] in self.disponibili for j in self.regole.prod_per_cat[c]):
                 punt[i] = -1        # nessun prodotto di questa categoria e' nel menu attuale
+            elif ultimo and qd[i] <= 0:
+                punt[i] = -1        # mai ordinata insieme a questo piatto nello storico
         out = []
         for i in np.argsort(-punt)[:k]:
             if punt[i] < SOGLIA:
                 continue
             c = self.cats[i]
-            if ultimo and self.quota_categoria(ultimo, c)[0] <= 0:
-                continue        # mai ordinata insieme a questo piatto nello storico: non si propone
-            if ultimo and ultimo in self.fam and c not in TARDIVE:
-                a = self.fam[ultimo]
-                if a in self.regole.ci and self.regole.nC[self.regole.ci[a]] >= MIN_COPPIE \
-                        and self.regole.conf_cat[self.regole.ci[a], i] < self.base[c]:
-                    continue    # chi ordina l'ultimo piatto prende questa categoria MENO della media: non e' un'associazione, silenzio
-            out.append({"categoria": c, "prob": float(p_ctx[i]), "prob_solo": float(p_solo[i]), "base": self.base[c],
-                        "motivo": self._motivo_categoria(c, i, cat_cart, p_ctx[i], p_solo[i]),
+            if ultimo:
+                n_t = int(self.regole.nP[self.regole.pi[ultimo]])
+                delta = (punt[i] - qd[i]) * 100
+                motivo = [f"Nel {qd[i]:.0%} dei tavoli con «{ultimo}» ({n_t} tavoli) c'era anche «{c}» (in media: {self.base[c]:.0%}).",
+                          (f"Il contesto {'aumenta' if delta > 0 else 'riduce'} la probabilità di {abs(delta):.0f} punti ({qd[i]:.0%} → {punt[i]:.0%})." if abs(delta) >= 1
+                           else "Il contesto cambia poco la probabilità.")]
+            else:
+                motivo = self._motivo_categoria(c, i, cat_cart, p_ctx[i], p_solo[i])
+            out.append({"categoria": c, "prob": float(punt[i]), "prob_modello": float(p_ctx[i]), "prob_solo": float(p_solo[i]),
+                        "quota_piatto": float(qd[i]) if ultimo else None, "base": self.base[c],
+                        "motivo": motivo,
                         "effetti": {v: float(p_var[v][i] - p_solo[i]) for v in VARIABILI},
                         "prodotti": self._prodotti_per(c, carrello, ultimo, n_prodotti)})
         contesto = {"Giorno": giorno, "Fascia": fascia, "Commensali": n_commensali, "Valore del carrello": valore}
@@ -197,26 +228,53 @@ class Motore:
             righe.append("Il contesto cambia poco la probabilità.")
         return righe
 
+    def storico_piatto(self, ultimo):
+        """True se il piatto ha abbastanza tavoli (MIN_STORICO) per usare i suoi dati. Non si usano mai dati di altri piatti al posto suoi."""
+        return ultimo in self.regole.pi and self.regole.nP[self.regole.pi[ultimo]] >= MIN_STORICO
+
     def quota_categoria(self, ultimo, c):
-        """Quota di tavoli con `ultimo` in cui c'era almeno un prodotto della categoria `c` (e numero di tavoli)."""
-        d = self.d
-        if d is None:                                   # versione online: conteggi aggregati
-            r = self.regole
-            if ultimo not in r.pi or not r.nP[r.pi[ultimo]]:
-                return 0.0, 0
-            n = int(r.nP[r.pi[ultimo]])
-            return self._con_cat[ultimo][self.cats.index(c)] / n, n
-        t_u = set(d.loc[d["nome_articolo"] == ultimo, "identificativo_turno"])
-        if not t_u:
+        """Quota di tavoli con `ultimo` in cui c'era almeno un prodotto della categoria `c` (e numero di tavoli).
+        Se il piatto non ha storico sufficiente non si usano dati di altri piatti: (0, 0)."""
+        if not self.storico_piatto(ultimo):
             return 0.0, 0
-        in_c = set(d.loc[d["nome_articolo"].map(self.fam) == c, "identificativo_turno"])
-        return len(t_u & in_c) / len(t_u), len(t_u)
+        a = self.regole.pi[ultimo]
+        return float(self.Q[a, self.cats.index(c)]), int(self.regole.nP[a])
+
+    def profilo_contesto(self, ultimo, c, giorno, fascia, commensali, minimo=15):
+        """Dai dati: quota di tavoli con `ultimo` e quel contesto che hanno ordinato anche la categoria `c`.
+        Restituisce (quota nel contesto, tavoli, quota media, lista di variabili usate, dettaglio per variabile)."""
+        a, ci = self.regole.pi[ultimo], self.cats.index(c)
+        comm = etichetta_commensali(commensali)
+        filtri = [("giorno", giorno), ("fascia", fascia), ("commensali", comm)]
+        pos = {"giorno": 0, "fascia": 1, "commensali": 2}
+
+        def conta(condizioni):
+            n = k = 0.0
+            for chiave, (np_, cc) in self.ctx.items():
+                parti = chiave.split("|")
+                if all(parti[pos[v]] == val for v, val in condizioni):
+                    n += np_[a]; k += cc[a, ci]
+            return int(n), k
+
+        n_tot, k_tot = conta([])
+        media = k_tot / n_tot if n_tot else 0.0
+        dettaglio = []
+        for v, val in filtri:
+            n, k = conta([(v, val)])
+            dettaglio.append((v, val, float(k / n) if n else None, n))
+        usate = list(filtri)
+        while True:
+            n, k = conta(usate)
+            if n >= minimo or not usate:
+                break
+            usate = usate[1:]                      # pochi tavoli: si toglie la variabile meno stabile (prima il giorno)
+        return (float(k / n) if n else 0.0), n, float(media), usate, dettaglio
 
     def ordina_categoria(self, c, ultimo):
         """Prodotti della categoria `c` (presenti nel menu) ordinati per quante volte sono stati ordinati insieme a `ultimo`.
         Restituisce [(prodotto, tavoli insieme, quota sui tavoli con `ultimo`)]; quelli mai ordinati insieme vengono dopo, in ordine alfabetico."""
         r = self.regole
-        a = r.pi.get(ultimo)
+        a = r.pi.get(ultimo) if self.storico_piatto(ultimo) else None
         righe = []
         for j in r.prod_per_cat[c]:
             nome = r.prodotti[j]
