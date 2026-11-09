@@ -2,11 +2,11 @@
 
 **Market Basket Analysis per l'upselling nella ristorazione** · Tesi di laurea magistrale in Intelligenza Artificiale, Impresa e Società (IULM) · Alissa Di Lorenzo
 
-Un sistema che, mentre il cliente compone l'ordine sul menu digitale, propone **la categoria di prodotti che quel tavolo ha più probabilità di ordinare**, al momento giusto del pasto e con una spiegazione chiara. È costruito sullo storico reale degli scontrini della Pizzeria Marina.
+Un sistema che, mentre il cliente compone l'ordine sul menu digitale, propone **la categoria di prodotti più adatta all'ultimo piatto scelto** (in base a ciò che hanno ordinato i tavoli con quel piatto, giorno, orario e numero di commensali), al momento giusto del pasto e con una spiegazione chiara. È costruito sullo storico reale degli scontrini della Pizzeria Marina.
 
 > «Nel 66% dei tavoli con *Margherita* c'era anche una birra.» Così il sistema motiva ogni suggerimento.
 
-🍕 **[Prova la demo del menu](demo-web/index.html)**: funziona nel browser, senza installare nulla.
+🍕 **Prototipo**: menu digitale in Streamlit (`app.py`), vedi «Il prototipo» e «Come eseguirlo». La cartella `demo-web/` contiene una versione precedente della demo in HTML, non aggiornata.
 
 ---
 
@@ -30,8 +30,10 @@ Un sistema che, mentre il cliente compone l'ordine sul menu digitale, propone **
 | 5 | Regole associative (confidenza) e metriche Top-K: Precision, Recall, Hit Rate, con intervalli bootstrap | `regole.py`, `valutazione.py`, `punto5_esecuzione.py` |
 | 6 | Esempi su sei tipi di tavolo reali | `esempi.py` |
 | 7 | Variabili di contesto: regressione logistica per categoria con giorno, fascia oraria e commensali, verificata su quattro finestre temporali | `contesto.py`, `verifiche.py`, `punto7_esecuzione.py` |
+| 8 | Scelta della categoria per piatto (quota di tavoli con quel piatto che hanno ordinato la categoria, corretta dal contesto) e regole operative dell'app | `motore.py`, `momento.py` |
+| 9 | Valutazione passo per passo con le regole dell'app e confronto con la baseline vincolata | `punto9_valutazione.py` |
 
-I report completi di ogni passo sono in [`notebook/`](notebook/).
+I report dei passi 2–7 sono in [`notebook/`](notebook/): sono stati generati prima delle ultime modifiche (scelta per piatto, regola sul momento del pasto dell'app) e non includono i passi 8 e 9.
 
 ### Le regole del momento del pasto (`momento.py`)
 
@@ -75,7 +77,7 @@ Dove il sistema propone (99% dei passi) la differenza con la baseline è +0,1 pu
 
 - `app.py`: menu digitale del ristorante in **Streamlit**, con barra laterale per simulare il tavolo (giorno, orario, commensali) e una "modalità dimostrazione" che mostra probabilità, motivazioni e regole applicate;
 - `motore.py`: il motore usato dal prototipo (modello con contesto + regole operative + motivazioni);
-- `modello_aggregato.json`: i parametri dei modelli e i conteggi aggregati (tavoli per prodotto, per coppia di prodotti e per categoria), creati con `crea_modello_aggregato.py`. Se `dettaglio_ordini_cena.csv` non c'è, l'app parte da questo file: è così che gira la versione online, senza pubblicare gli scontrini. Su 1.500 carrelli casuali dà esattamente gli stessi suggerimenti del modello addestrato sui dati;
+- `modello_aggregato.json`: i parametri dei modelli e i conteggi aggregati (tavoli per prodotto, per coppia di prodotti, per prodotto e categoria e per prodotto e contesto), creati con `crea_modello_aggregato.py`. Se `dettaglio_ordini_cena.csv` non c'è, l'app parte da questo file: è così che gira la versione online, senza pubblicare gli scontrini. Su 600 carrelli casuali dà esattamente gli stessi suggerimenti del modello addestrato sui dati;
 - `demo-web/`: **versione precedente** della demo in una sola pagina HTML, non ancora aggiornata alle ultime regole (scelta della categoria per piatto, pagina «Prima di iniziare»). Il modello addestrato è esportato in JSON (`esporta_modello.py`: solo pesi e conteggi aggregati, nessuno scontrino) e il motore è riscritto in JavaScript (`motore.js`). Sui 400 carrelli di verifica dà gli stessi suggerimenti del motore Python.
 
 ## Come eseguirlo
@@ -85,9 +87,10 @@ pip install -r requirements.txt
 # metti dettaglio_ordini_cena.csv nella cartella principale (vedi dati/README.md)
 python punto5_esecuzione.py          # regole e metriche
 python punto7_esecuzione.py          # variabili di contesto (qualche minuto)
+python punto9_valutazione.py         # valutazione passo per passo con le regole dell'app (qualche minuto)
 streamlit run app.py                 # prototipo del menu (funziona anche senza il CSV, con modello_aggregato.json)
 python crea_modello_aggregato.py     # rigenera modello_aggregato.json dai dati
-python demo-web/costruisci_demo.py   # rigenera la demo web
+python demo-web/costruisci_demo.py   # rigenera la demo web (versione precedente)
 ```
 
 ## Dati
