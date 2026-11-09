@@ -1,4 +1,4 @@
-"""Punto 7: variabili di contesto (giorno, fascia oraria, commensali, valore del carrello).
+"""Punto 7: variabili di contesto (giorno, fascia oraria, commensali).
 
 Modello a livello di categoria: per ogni categoria una regressione logistica che stima la probabilita' che il tavolo
 la ordini, dati (a) le categorie gia' nel carrello e, nelle versioni con contesto, (b) le variabili di contesto.
@@ -10,7 +10,7 @@ from sklearn.linear_model import LogisticRegression
 from baseline import BaselineCategorieComplementari as BC
 from momento import non_consentite
 
-VARIABILI = ["giorno", "fascia", "commensali", "valore"]
+VARIABILI = ["giorno", "fascia", "commensali"]   # il valore del carrello non si usa: durante l'ordine non si sa quanto spendera' il cliente
 
 
 def tabella_turni(d):
@@ -41,7 +41,7 @@ class ModelloCategorie:
             cols += [(fascia == v).astype(float) for v in ("prima_20", "dopo_21")]
         if "commensali" in self.variabili:
             cols += [(commensali == v).astype(float) for v in ("3_4", "5+")]
-        if "valore" in self.variabili:
+        if "valore" in self.variabili:       # valore del carrello per persona
             cols += [(valore_pp <= self.q[0]).astype(float), (valore_pp > self.q[1]).astype(float)]
         return np.column_stack(cols) if cols else np.zeros((len(giorno), 0))
 

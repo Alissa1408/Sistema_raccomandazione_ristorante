@@ -156,11 +156,17 @@ st.session_state.setdefault("impasto", None)      # supplemento impasto in attes
 st.session_state.setdefault("sfoglia", None)     # (categoria, piatto di riferimento) quando il cliente accetta e apre il menu della categoria
 st.session_state.setdefault("pagina", None)
 st.session_state.setdefault("aperto", False)
-st.session_state.setdefault("giorno", "Sabato")
-st.session_state.setdefault("fascia", "20:00 - 20:59")
-st.session_state.setdefault("commensali", 4)
+# giorno e ora: quelli di adesso (orologio del locale); nella barra laterale si possono cambiare per simulare altre serate
+from datetime import datetime
+from zoneinfo import ZoneInfo
+_ora = datetime.now(ZoneInfo("Europe/Rome"))
+GIORNI_APERTURA = ["Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]     # lunedì e martedì il locale è chiuso
+st.session_state.setdefault("giorno", list(GIORNI)[_ora.weekday()] if list(GIORNI)[_ora.weekday()] in GIORNI_APERTURA else "Mercoledì")
+st.session_state.setdefault("fascia", "Prima delle 20" if _ora.hour < 20 else ("20:00 - 20:59" if _ora.hour == 20 else "Dopo le 21"))
+st.session_state.setdefault("commensali", 2)
+st.session_state.setdefault("avviata", False)
 
-NOMI_VAR = {"giorno": "giorno", "fascia": "fascia oraria", "commensali": "commensali", "valore": "valore del carrello"}
+NOMI_VAR = {"giorno": "giorno", "fascia": "fascia oraria", "commensali": "commensali"}
 
 
 def eur(x):
@@ -261,6 +267,23 @@ def esempio(prodotti, giorno, fascia, n):
     st.session_state.giorno, st.session_state.fascia, st.session_state.commensali = giorno, fascia, n
 
 
+def avvia():
+    st.session_state.avviata = True
+
+
+# ---------------------------------------------------------------- domande iniziali (solo per la demo)
+if not st.session_state.avviata:
+    st.markdown(f'<div class="logo"><img src="{LOGO_URL}"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="titolo">Prima di iniziare</div>', unsafe_allow_html=True)
+    st.info("Questa è una demo. Il sistema usa il contesto dell'ordine per scegliere i suggerimenti: giorno, fascia oraria e numero di commensali. Nel sito vero queste informazioni non verranno chieste ma calcolate in automatico dal sistema. "
+            "Qui servono per simulare serate diverse e vedere come cambiano i suggerimenti.")
+    st.selectbox("Giorno", GIORNI_APERTURA, key="giorno")
+    st.selectbox("Fascia oraria", list(FASCE), key="fascia")
+    st.number_input("Commensali", min_value=1, max_value=20, key="commensali")
+    st.button("Apri il menu", key="avvia", on_click=avvia, use_container_width=True)
+    st.stop()
+
+
 qty = st.session_state.qty
 for _i in list(qty):
     if "|" in _i:
@@ -273,10 +296,11 @@ n_comm = int(st.session_state.commensali)
 # ---------------------------------------------------------------- barra laterale (simulazione e dimostrazione)
 with st.sidebar:
     st.header("Simulazione del tavolo")
-    st.selectbox("Giorno", list(GIORNI), key="giorno")
+    st.caption("Nel sito vero questi dati li calcola il sistema (orologio, coperti, carrello). Qui puoi cambiarli per simulare un'altra serata.")
+    st.selectbox("Giorno", GIORNI_APERTURA, key="giorno")
     st.selectbox("Fascia oraria", list(FASCE), key="fascia")
     st.number_input("Commensali", min_value=1, max_value=20, key="commensali")
-    st.metric("Valore del carrello", eur(valore), f"{eur(valore / max(n_comm, 1))} a persona", delta_color="off")
+    st.metric("Totale dell'ordine", eur(valore))
     st.divider()
     demo = st.toggle("Modalità dimostrazione", value=False,
                      help="Mostra i dettagli tecnici (probabilità, motivazioni, regole, variabili di contesto). Spenta = ciò che vedrebbe il cliente.")
@@ -326,6 +350,11 @@ ARTICOLO = {"Birra": "una birra", "Bibite analcoliche": "una bibita", "Contorni"
             "Primi vegetariani/altri": "un primo vegetariano", "Secondi di pesce": "un secondo di pesce", "Secondi di carne": "un secondo di carne",
             "Secondi vegetariani/altri": "un secondo vegetariano", "Antipasti di pesce": "un antipasto di pesce",
             "Antipasti di carne/salumi": "un antipasto di salumi", "Antipasti vegetariani/altri": "un antipasto"}
+ETI_GIORNO = {"feriale": "dei giorni feriali", "ven": "del venerdì", "sab": "del sabato", "dom": "della domenica"}
+ETI_FASCIA = {"prima_20": "prima delle 20", "20_21": "tra le 20 e le 21", "dopo_21": "dopo le 21"}
+ETI_COMM = {"1_2": "da 1–2 persone", "3_4": "da 3–4 persone", "5+": "da 5 o più persone"}
+ETI = {"giorno": ETI_GIORNO, "fascia": ETI_FASCIA, "commensali": ETI_COMM}
+NOMI_V = {"giorno": "Giorno", "fascia": "Fascia oraria", "commensali": "Commensali"}
 TITOLO = {"Birra": "Birre", "Bibite analcoliche": "Bibite", "Contorni": "Contorni", "Dessert": "Dessert", "Caffetteria": "Caffetteria",
           "Amari e digestivi": "Amari e digestivi", "Vino bianco e spumante": "Vini bianchi e spumanti", "Vino rosso": "Vini rossi"}
 
@@ -363,10 +392,11 @@ def blocco_suggerimento():
     base_nome = VOCI[ultimo_id].get("nome_base", VOCI[ultimo_id]["nome"])
     quota, n_tav = m.quota_categoria(base_csv, cat)
     art = ARTICOLO.get(cat, "un prodotto della categoria «" + cat + "»")
+    base_lab = f"«{base_nome}»" if m.storico_piatto(base_csv) else ARTICOLO.get(m.fam.get(base_csv), "un piatto di questa categoria")
     if cat in TARDIVE:
-        motivo = f"Nel {quota:.0%} dei tavoli con «{base_nome}» c'era anche {art}. Lo proponiamo ora perché nell'ordine c'è già un piatto principale."
+        motivo = f"Nel {quota:.0%} dei tavoli con {base_lab} ({n_tav} tavoli) c'era anche {art}. Lo proponiamo ora perché nell'ordine c'è già un piatto principale."
     else:
-        motivo = f"Nel {quota:.0%} dei tavoli con «{base_nome}» c'era anche {art}."
+        motivo = f"Nel {quota:.0%} dei tavoli con {base_lab} ({n_tav} tavoli) c'era anche {art}."
     with st.container(key="sugg_1"):
         st.markdown('<div class="sugg-titolo">Ti potrebbe interessare</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="nome">{e(art[0].upper() + art[1:])}?</div><div class="sugg-motivo">{e(motivo)}</div>', unsafe_allow_html=True)
@@ -374,11 +404,24 @@ def blocco_suggerimento():
             c, d, _ = st.columns([3.2, 1.8, 3], vertical_alignment="center")
             c.button(f"Scopri {TITOLO_BREVE.get(cat, 'le proposte').lower()} →", key="si_s", on_click=apri_cat, args=(cat, base_csv))
             d.button("No, grazie", key="no_s", on_click=rifiuta, args=(cat,))
+        gk, fk = GIORNI[st.session_state.giorno], FASCE[st.session_state.fascia]
+        q_ctx, n_ctx, q_med, usate, dett = m.profilo_contesto(base_csv, cat, gk, fk, n_comm)
+        if usate and n_ctx:
+            quando = ", ".join(ETI[v][val] for v, val in usate)
+            frase_ctx = f"Nei tavoli {quando}: il {q_ctx:.0%} ha ordinato anche {art} (in media il {q_med:.0%})."
+        else:
+            frase_ctx = ""
+        ETI_S = {"giorno": {"feriale": "Giorni feriali", "ven": "Venerdì", "sab": "Sabato", "dom": "Domenica"},
+                 "fascia": {"prima_20": "Prima delle 20", "20_21": "20:00 - 20:59", "dopo_21": "Dopo le 21"},
+                 "commensali": {"1_2": "1–2 commensali", "3_4": "3–4 commensali", "5+": "5 o più commensali"}}
+        righe_v = [f"{ETI_S[v][val]}: {q:.0%} ({n} tavoli)" for v, val, q, n in dett if q is not None and n >= 5]
+        if righe_v:
+            st.markdown(f'<div class="sugg-motivo">Tenendo conto anche del contesto, quota di tavoli con questo piatto che hanno ordinato {e(art)}:<br>'
+                        + "<br>".join(e(r) for r in righe_v) + "</div>", unsafe_allow_html=True)
         if demo:
-            delta = sugg["motivo"][1] if len(sugg["motivo"]) > 1 else ""
-            st.markdown(f'<div class="sugg-motivo"><b>Variabili di contesto considerate:</b> {e(st.session_state.giorno)} · {e(st.session_state.fascia)} · '
-                        f'{n_comm} {"persona" if n_comm == 1 else "persone"} · ordine {eur(valore)} ({eur(valore / max(n_comm, 1))} a persona). {e(delta)}</div>',
-                        unsafe_allow_html=True)
+            st.markdown(f'<div class="sugg-motivo">Stima per questo piatto, corretta dal contesto: <b>{sugg["prob"]:.0%}</b> '
+                        f'(dati del solo piatto: {sugg["quota_piatto"]:.0%}; media: {q_med:.0%}).</div>', unsafe_allow_html=True)
+        if demo:
             eff = ", ".join(f"{NOMI_VAR[k]} {dd * 100:+.0f}" for k, dd in sugg["effetti"].items())
             righe = [f"<b>Categoria proposta:</b> {e(sugg['categoria'])} · probabilità stimata <b>{sugg['prob']:.0%}</b> (soglia {int(soglia * 100)}%)",
                      "<b>Perché la categoria:</b> " + " ".join(e(r) for r in sugg["motivo"]),
@@ -466,11 +509,12 @@ def vista_categoria():
     cat, base_csv = st.session_state.sfoglia
     base_nome = PER_CSV[base_csv]["nome"] if base_csv in PER_CSV else base_csv.title()
     ordinati = [(PER_CSV[p], n, q) for p, n, q in m.ordina_categoria(cat, base_csv) if p in PER_CSV]
+    etich = f"«{base_nome}»" if m.storico_piatto(base_csv) else ARTICOLO.get(m.fam.get(base_csv), "un piatto di questa categoria")
     with st.container(key="pagina"):
         st.markdown(f'<div class="h1">{e(TITOLO.get(cat, cat))}</div><div class="barra"></div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="nota-d">Ordinati in base a quanto si scelgono insieme a «{e(base_nome)}».</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="nota-d">Ordinati in base a quanto si scelgono insieme a {e(etich)}.</div>', unsafe_allow_html=True)
         for v, n, q in ordinati:
-            nota = (f"Nel {q:.0%} dei tavoli con «{base_nome}»" if q >= 0.01 else f"In meno dell'1% dei tavoli con «{base_nome}»") if n > 0 else None
+            nota = (f"Nel {q:.0%} dei tavoli con {etich}" if q >= 0.01 else f"In meno dell'1% dei tavoli con {etich}") if n > 0 else None
             riga_menu(v, nota)
     st.button("← Torna al menu", key="chiudi_cat", on_click=chiudi_cat, use_container_width=True)
 

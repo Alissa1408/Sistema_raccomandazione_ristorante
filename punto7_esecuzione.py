@@ -18,8 +18,7 @@ prezzi = {(a, b): c for a, b, c in zip(d['identificativo_turno'], d['nome_artico
 casi = [c for c in filtra_casi(costruisci_casi(test, 1), fam) if c['cat_nascoste']]
 print(len(casi), 'casi')
 
-config = {'Solo carrello': [], '+ giorno': ['giorno'], '+ fascia oraria': ['fascia'], '+ commensali': ['commensali'],
-          '+ valore del carrello': ['valore'], '+ tutte e quattro': VARIABILI}
+config = {'Solo carrello': [], '+ giorno': ['giorno'], '+ fascia oraria': ['fascia'], '+ commensali': ['commensali'], '+ tutte e tre': VARIABILI}
 
 sugg = {nome: ModelloCategorie(v).fit(train, turni).suggerimenti(casi, turni, prezzi, 5) for nome, v in config.items()}
 
@@ -49,7 +48,7 @@ for nome in list(config)[1:]:
 print(pd.DataFrame(righe).to_string())
 
 M_tutte = ModelloCategorie(VARIABILI).fit(train, turni)
-nomi = M_tutte.cats + ['ven', 'sab', 'dom', 'prima_20', 'dopo_21', 'comm_3_4', 'comm_5+', 'valore_basso', 'valore_alto']
+nomi = M_tutte.cats + ['ven', 'sab', 'dom', 'prima_20', 'dopo_21', 'comm_3_4', 'comm_5+']
 for cat in ['Dessert', 'Caffetteria', 'Vino bianco e spumante']:
     coef = pd.Series(M_tutte.modelli[M_tutte.cats.index(cat)].coef_[0], index=nomi).iloc[len(M_tutte.cats):].round(2)
     print(cat); print(coef.to_string()); print()
