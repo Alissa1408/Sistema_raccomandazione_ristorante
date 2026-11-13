@@ -119,6 +119,21 @@ header[data-testid="stHeader"] { background: transparent; }
 .piede { text-align: center; font-size: .85rem; color: #444 !important; line-height: 2; margin-top: 2.4rem; }
 .piede a { color: #1a1a1a !important; text-decoration: none; }
 .piede u { text-decoration: underline dotted; }
+
+/* apertura della barra laterale: ben visibile */
+[data-testid="stExpandSidebarButton"], [data-testid="stSidebarCollapsedControl"] button, [data-testid="collapsedControl"] button {
+  background: #57210d !important; color: #fff !important; border-radius: 999px !important; padding: .35rem .9rem !important;
+  box-shadow: 0 4px 6px rgba(0,0,0,.2); opacity: 1 !important; width: auto !important; height: auto !important; }
+[data-testid="stExpandSidebarButton"] *, [data-testid="stSidebarCollapsedControl"] button *, [data-testid="collapsedControl"] button * {
+  color: #fff !important; fill: #fff !important; opacity: 1 !important; }
+[data-testid="stExpandSidebarButton"]::after, [data-testid="stSidebarCollapsedControl"] button::after, [data-testid="collapsedControl"] button::after {
+  content: " Opzioni"; color: #fff; font-family: 'Jost', sans-serif; letter-spacing: .06em; text-transform: uppercase; font-size: .85rem; }
+
+/* pulsanti + e - del numero di commensali: segni ben visibili */
+[data-testid="stNumberInputStepUp"], [data-testid="stNumberInputStepDown"] { background: #57210d !important; border-radius: 8px !important; }
+[data-testid="stNumberInputStepUp"] *, [data-testid="stNumberInputStepDown"] *,
+[data-testid="stNumberInputContainer"] [data-testid="stNumberInputStepUp"] *, [data-testid="stNumberInputContainer"] [data-testid="stNumberInputStepDown"] * {
+  color: #fff !important; fill: #fff !important; stroke: #fff !important; }
 """
 st.markdown(f"<style>{CSS}</style>", unsafe_allow_html=True)
 
