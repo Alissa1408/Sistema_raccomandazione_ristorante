@@ -12,7 +12,7 @@ import re
 import streamlit as st
 
 from menu_marina import carica_menu
-from momento import TARDIVE
+from momento import TARDIVE, non_consentite_fasi
 from motore import Motore, GIORNI, FASCE, SOGLIA
 
 LOGO_URL = "https://znxdanvdfkagvxqslnzt.supabase.co/storage/v1/object/public/dish-images/789780f3-5717-42d9-b26a-56bd1fd149fa/logo/logo_1772890857340.webp"
@@ -302,6 +302,8 @@ with st.sidebar:
     st.number_input("Commensali", min_value=1, max_value=20, key="commensali")
     st.metric("Totale dell'ordine", eur(valore))
     st.divider()
+    st.radio("Sistema di suggerimento", ["Il mio sistema", "Baseline"], key="sistema",
+             help="Il mio sistema sceglie la categoria in base al piatto e al contesto. La baseline propone sempre la categoria più ordinata in generale tra quelle consentite, uguale per tutti i piatti: serve per il confronto.")
     demo = st.toggle("Modalità dimostrazione", value=False,
                      help="Mostra i dettagli tecnici (probabilità, motivazioni, regole, variabili di contesto). Spenta = ciò che vedrebbe il cliente.")
     fisso = st.toggle("Carrello sempre visibile in alto", value=False,
@@ -340,7 +342,18 @@ if (ultimo_id in qty and not senza_suggerimenti(VOCI[ultimo_id]) and VOCI[ultimo
     if csv_cart:
         tutti, regole, _ = m.suggerisci(csv_cart, GIORNI[st.session_state.giorno], FASCE[st.session_state.fascia], n_comm,
                                         k=12, valore=valore, ultimo=VOCI[ultimo_id]["csv"], n_prodotti=1)
-        candidati = [s for s in tutti if s["prob"] >= soglia]
+        if st.session_state.get("sistema") == "Baseline":
+            # baseline: la categoria piu' ordinata in generale tra quelle consentite, senza guardare il piatto ne' il contesto
+            _cc = sorted({m.fam[p] for p in csv_cart})
+            _no = non_consentite_fasi(_cc, m.cats, m.fam.get(VOCI[ultimo_id]["csv"])) | set(_cc)
+            _ok = [c for c in sorted(m.cats, key=lambda c: -m.base[c]) if c not in _no
+                   and any(m.regole.prodotti[j] in m.disponibili for j in m.regole.prod_per_cat[c])]
+            tutti = [{"categoria": c, "prob": m.base[c], "prob_modello": m.base[c], "prob_solo": m.base[c], "quota_piatto": None,
+                      "base": m.base[c], "motivo": ["Baseline: categoria più ordinata in generale."], "effetti": {}, "prodotti": []} for c in _ok]
+            regole = ["Baseline: stessa lista per tutti i piatti, nessun uso del piatto né del contesto. Valgono le stesse regole sul momento del pasto."]
+            candidati = tutti
+        else:
+            candidati = [s for s in tutti if s["prob"] >= soglia]
         sugg = candidati[0] if candidati else None      # solo la più rilevante; se il cliente dice no, per quel piatto si sta in silenzio
 
 
@@ -397,6 +410,9 @@ def blocco_suggerimento():
         motivo = f"Nel {quota:.0%} dei tavoli con {base_lab} ({n_tav} tavoli) c'era anche {art}. Lo proponiamo ora perché nell'ordine c'è già un piatto principale."
     else:
         motivo = f"Nel {quota:.0%} dei tavoli con {base_lab} ({n_tav} tavoli) c'era anche {art}."
+    baseline = st.session_state.get("sistema") == "Baseline"
+    if baseline:
+        motivo = f"BASELINE: {art} è la categoria più ordinata in generale ({m.base[cat]:.0%} dei tavoli), la stessa per qualsiasi piatto. Non guarda il piatto né il contesto."
     with st.container(key="sugg_1"):
         st.markdown('<div class="sugg-titolo">Ti potrebbe interessare</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="nome">{e(art[0].upper() + art[1:])}?</div><div class="sugg-motivo">{e(motivo)}</div>', unsafe_allow_html=True)
@@ -404,6 +420,8 @@ def blocco_suggerimento():
             c, d, _ = st.columns([3.2, 1.8, 3], vertical_alignment="center")
             c.button(f"Scopri {TITOLO_BREVE.get(cat, 'le proposte').lower()} →", key="si_s", on_click=apri_cat, args=(cat, base_csv))
             d.button("No, grazie", key="no_s", on_click=rifiuta, args=(cat,))
+        if baseline:
+            return
         gk, fk = GIORNI[st.session_state.giorno], FASCE[st.session_state.fascia]
         q_ctx, n_ctx, q_med, usate, dett = m.profilo_contesto(base_csv, cat, gk, fk, n_comm)
         if usate and n_ctx:
