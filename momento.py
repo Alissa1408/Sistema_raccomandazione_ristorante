@@ -55,6 +55,8 @@ def non_consentite_fasi(cat_carrello, tutte, ultimo_cat=None):
     if f == 2 and any(fase(c) == 4 for c in cat_carrello):
         consentite = {5}        # la bevanda e' gia' stata scelta (prima del piatto): dopo il piatto si propone direttamente il dolce
     ok = {c for c in tutte if fase(c) in consentite}
+    if f == 1:
+        ok = {c for c in ok if c.startswith("Primi")}      # dopo un antipasto si propone un primo (non pizza ne' secondo)
     if not any(e_principale(c) for c in cat_carrello):
         ok -= TARDIVE
     return set(tutte) - ok
