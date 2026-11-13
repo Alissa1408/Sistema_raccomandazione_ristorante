@@ -27,6 +27,7 @@ CSS = """
 .stApp { background: #fef7df; }
 .stApp, .stApp p, .stApp label, .stApp li, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp small, .stApp td, .stApp th,
 .stApp [data-testid="stMarkdownContainer"], .stApp [data-testid="stCaptionContainer"] { color: #57210d; }
+html, body, [data-testid="stApp"], [data-testid="stAppViewContainer"], .stApp { background: #fef7df !important; color-scheme: light; }
 header[data-testid="stHeader"] { background: transparent; }
 [data-testid="stAppDeployButton"], [data-testid="stMainMenu"], footer { display: none !important; }
 .block-container { max-width: 42rem; padding-top: 1rem; padding-bottom: 3rem; }
@@ -141,7 +142,7 @@ header[data-testid="stHeader"] { background: transparent; }
 st.markdown(f"<style>{CSS}</style>", unsafe_allow_html=True)
 
 
-@st.cache_resource(show_spinner="Sto preparando il modello (qualche secondo)...")
+@st.cache_resource(show_spinner=False)
 def carica():
     m_ = Motore("dettaglio_ordini_cena.csv")
     pagine_, voci_ = carica_menu("menu_marina.json", list(m_.fam))
@@ -166,7 +167,11 @@ def carica():
     return m_, pagine_, voci_, per_csv
 
 
+_attesa = st.empty()
+_attesa.markdown('<div style="background:#fef7df;color:#57210d;text-align:center;padding:2rem;font-size:1.1rem;border-radius:12px;">'
+                 'Sto preparando il modello (qualche secondo)...</div>', unsafe_allow_html=True)
 m, PAGINE, VOCI, PER_CSV = carica()
+_attesa.empty()
 st.session_state.setdefault("qty", {})           # id voce -> quantità
 st.session_state.setdefault("ultimo", None)      # ultimo piatto aggiunto: è quello a cui riferire il suggerimento
 st.session_state.setdefault("rifiutate", [])
