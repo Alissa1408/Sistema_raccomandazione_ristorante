@@ -182,6 +182,8 @@ GIORNI_APERTURA = ["Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]  
 st.session_state.setdefault("giorno", list(GIORNI)[_ora.weekday()] if list(GIORNI)[_ora.weekday()] in GIORNI_APERTURA else "Mercoledì")
 st.session_state.setdefault("fascia", "Prima delle 20" if _ora.hour < 20 else ("20:00 - 20:59" if _ora.hour == 20 else "Dopo le 21"))
 st.session_state.setdefault("commensali", 2)
+for _k in ("giorno", "fascia", "commensali"):      # i selettori compaiono solo nella pagina iniziale: i valori scelti restano per tutta la sessione
+    st.session_state[_k] = st.session_state[_k]
 st.session_state.setdefault("avviata", False)
 
 NOMI_VAR = {"giorno": "giorno", "fascia": "fascia oraria", "commensali": "commensali"}
@@ -311,36 +313,14 @@ n_art = sum(q for _, q in carrello)
 valore = round(sum((v["prezzo"] or 0) * q for v, q in carrello), 2)
 n_comm = int(st.session_state.commensali)
 
-# ---------------------------------------------------------------- barra laterale (simulazione e dimostrazione)
+# ---------------------------------------------------------------- barra laterale: solo la scelta del sistema
 with st.sidebar:
-    st.header("Simulazione del tavolo")
-    st.caption("Nel sito vero questi dati li calcola il sistema (orologio, coperti, carrello). Qui puoi cambiarli per simulare un'altra serata.")
-    st.selectbox("Giorno", GIORNI_APERTURA, key="giorno")
-    st.selectbox("Fascia oraria", list(FASCE), key="fascia")
-    st.number_input("Commensali", min_value=1, max_value=20, key="commensali")
-    st.metric("Totale dell'ordine", eur(valore))
-    st.divider()
+    st.header("Opzioni")
     st.radio("Sistema di suggerimento", ["Il mio sistema", "Baseline"], key="sistema",
              help="Il mio sistema sceglie la categoria in base al piatto e al contesto. La baseline propone sempre la categoria più ordinata in generale tra quelle consentite, uguale per tutti i piatti: serve per il confronto.")
-    demo = st.toggle("Modalità dimostrazione", value=False,
-                     help="Mostra i dettagli tecnici (probabilità, motivazioni, regole, variabili di contesto). Spenta = ciò che vedrebbe il cliente.")
-    fisso = st.toggle("Carrello sempre visibile in alto", value=False,
-                      help="Spento: il carrello sta fermo in cima alla pagina. Acceso: resta visibile mentre scorri il menu.")
-    soglia = SOGLIA
-    if demo:
-        soglia = st.slider("Soglia di rilevanza", 5, 50, int(SOGLIA * 100), 5, format="%d%%",
-                           help="Il suggerimento compare solo se la probabilità stimata supera questa soglia.") / 100
-    st.subheader("Esempi rapidi")
-    st.button("Tavolo di pesce", key="ex1", on_click=esempio, args=(["SPAGHETTI ALLO SCOGLIO"], "Sabato", "20:00 - 20:59", 5), use_container_width=True)
-    st.button("Pizza e birra", key="ex2", on_click=esempio, args=(["MARGHERITA", "BIRRA MEDIA"], "Mercoledì", "Prima delle 20", 2), use_container_width=True)
-    st.button("Cena quasi completa", key="ex3", on_click=esempio, args=(["MARGHERITA", "BUFALA", "BIRRA MEDIA", "COCA COLA"], "Venerdì", "Dopo le 21", 4), use_container_width=True)
-    with st.expander("Come funziona"):
-        st.markdown(
-            "Il modello è stato addestrato sugli ordini storici dei tavoli. Ogni volta che si aggiunge un piatto, stima per ogni categoria "
-            "la probabilità che il tavolo la ordini (in base al carrello e al contesto) e propone la più probabile tra quelle non ancora "
-            "presenti. Dentro la categoria sceglie il prodotto più spesso ordinato insieme al piatto appena aggiunto, tra quelli del menu attuale.\n\n"
-            "Prototipo dimostrativo: non è collegato a un ordine reale."
-        )
+demo = False            # dettagli tecnici nascosti: si vede ciò che vedrebbe il cliente
+fisso = False
+soglia = SOGLIA
 
 if fisso:
     st.markdown("<style>div:has(> .st-key-ordine) { position: sticky; top: 3.3rem; z-index: 60; }</style>", unsafe_allow_html=True)
