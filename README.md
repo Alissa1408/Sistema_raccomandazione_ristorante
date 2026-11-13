@@ -40,7 +40,7 @@ I report dei passi 2–7 sono in [`notebook/`](notebook/): sono stati generati p
 - antipasto → piatto principale → bevanda → dolce → caffè → amaro;
 - dolci, caffè e amari solo se nel carrello c'è già un piatto principale;
 - mai una categoria già presente nel carrello;
-- la categoria dipende dall'**ultimo piatto aggiunto**: si propone quella che i tavoli con quel piatto ordinano più spesso (per esempio bibite con patatine e wurstel, vino bianco con il pesce), corretta dal contesto;
+- la categoria dipende dall'**ultimo piatto aggiunto**: si propone la categoria con la probabilità più alta tra quelle che, dopo quel piatto, si ordinano **più del solito** (lift maggiore di 1), corretta dal contesto. Per esempio bibite con patatine e wurstel, vino bianco con il pesce, un primo di pesce dopo un antipasto di pesce. La stessa regola vale per tutto il menu;
 - nessun suggerimento se il piatto compare in meno di 10 tavoli, se la categoria non è mai stata ordinata con quel piatto, nel menu del pranzo;
 - sotto il 10% di probabilità stimata il sistema **sta in silenzio**.
 
@@ -68,10 +68,10 @@ Le metriche sopra nascondono un prodotto e usano una regola sul momento del past
 | Sistema | Successo |
 |---|---:|
 | Baseline vincolata (categoria più frequente tra quelle consentite) | 53,3% |
-| Sistema per piatto, senza contesto | 52,7% |
-| Sistema per piatto con contesto (app) | 52,8% |
+| Sistema per piatto, senza contesto | 52,0% |
+| Sistema per piatto con contesto (app) | 52,0% |
 
-Dove il sistema propone (99% dei passi) la differenza con la baseline è +0,1 punti (IC 95%: −0,1 / +0,3): è alla pari, non migliore. Il vantaggio della scelta per piatto è qualitativo, non misurabile con questo indicatore.
+Il sistema propone nel 98% dei passi. La differenza con la baseline è −1,4 punti (IC 95%: −1,8 / −0,9), il contesto non cambia il risultato (−0,1 punti). Il test premia chi propone ciò che i clienti ordinerebbero comunque (per esempio la pizza dopo un antipasto), mentre la regola con il lift propone ciò che dopo quel piatto si ordina più del solito: misura quanto si indovina, non quanto si aumenta lo scontrino. Il valore della scelta per piatto è quindi qualitativo e va verificato con un test reale.
 
 ## Il prototipo
 
