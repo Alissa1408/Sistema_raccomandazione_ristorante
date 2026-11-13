@@ -163,7 +163,7 @@ class Motore:
             regole_applicate.append("Dolci, caffè e amari/digestivi non vengono proposti finché nel carrello non c'è un piatto principale (pizza, primo o secondo).")
         if cat_cart:
             regole_applicate.append("Non si propone una categoria già presente nel carrello: " + ", ".join(cat_cart) + ".")
-        regole_applicate.append("La categoria si sceglie in base ai dati dell'ultimo piatto aggiunto (quota di tavoli con quel piatto che hanno ordinato la categoria), corretti dal contesto.")
+        regole_applicate.append("La categoria si sceglie in base ai dati dell'ultimo piatto aggiunto (quota di tavoli con quel piatto che hanno ordinato la categoria), corretti dal contesto. Si propone solo se, dopo quel piatto, la categoria si ordina più del solito (lift maggiore di 1).")
         regole_applicate.append("Si propone una categoria solo se la probabilità stimata è almeno del %d%%: altrimenti il sistema sta in silenzio." % int(SOGLIA * 100))
 
         # punteggio di ogni categoria: dati del piatto appena scelto (quota di tavoli con quel piatto che hanno ordinato la categoria),
@@ -183,6 +183,8 @@ class Motore:
                 punt[i] = -1        # nessun prodotto di questa categoria e' nel menu attuale
             elif ultimo and qd[i] <= 0:
                 punt[i] = -1        # mai ordinata insieme a questo piatto nello storico
+            elif ultimo and c not in TARDIVE and qd[i] < self.base[c]:
+                punt[i] = -1        # lift < 1: dopo questo piatto la categoria si ordina meno del solito, non e' un'associazione
         out = []
         for i in np.argsort(-punt)[:k]:
             if punt[i] < SOGLIA:
