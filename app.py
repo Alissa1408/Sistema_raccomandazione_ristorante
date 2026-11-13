@@ -129,6 +129,9 @@ header[data-testid="stHeader"] { background: transparent; }
 [data-testid="stExpandSidebarButton"]::after, [data-testid="stSidebarCollapsedControl"] button::after, [data-testid="collapsedControl"] button::after {
   content: " Opzioni"; color: #fff; font-family: 'Jost', sans-serif; letter-spacing: .06em; text-transform: uppercase; font-size: .85rem; }
 
+/* testo dei pulsanti nella barra laterale (esempi rapidi): bianco sul marrone */
+[data-testid="stSidebar"] [data-testid="stButton"] button, [data-testid="stSidebar"] [data-testid="stButton"] button * { color: #fff !important; }
+
 /* pulsanti + e - del numero di commensali: segni ben visibili */
 [data-testid="stNumberInputStepUp"], [data-testid="stNumberInputStepDown"] { background: #57210d !important; border-radius: 8px !important; }
 [data-testid="stNumberInputStepUp"] *, [data-testid="stNumberInputStepDown"] *,
